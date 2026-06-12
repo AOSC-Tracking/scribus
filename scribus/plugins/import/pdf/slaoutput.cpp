@@ -17,6 +17,7 @@ for which a new license (GPL+exception) is in place.
 #include <poppler/poppler-config.h>
 #include <poppler/FileSpec.h>
 #include <poppler/fofi/FoFiTrueType.h>
+#include <poppler/OptionalContent.h>
 
 #include <QApplication>
 #include <QFile>
@@ -189,7 +190,11 @@ void AnoOutputDev::drawString(GfxState *state, const GooString *s)
 #endif
 }
 
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 06, 0)
+QString AnoOutputDev::getColor(GfxColorSpace *color_space, const GfxColor &color, int* shade)
+#else
 QString AnoOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color, int *shade)
+#endif
 {
 	QString fNam;
 	QString namPrefix = "FromPDF";
@@ -272,7 +277,11 @@ QString AnoOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color
 		tmp.setSpotColor(true);
 
 		fNam = m_doc->PageColors.tryAddColor(name, tmp);
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 06, 0)
+		*shade = qRound(colToDbl(color.c[0]) * 100);
+#else
 		*shade = qRound(colToDbl(color->c[0]) * 100);
+#endif
 	}
 	else
 	{
@@ -660,7 +669,7 @@ bool SlaOutputDev::handleWidgetAnnot(Annot* annota, double xCoor, double yCoor, 
 		}
 		if (retVal)
 		{
-			AnnotAppearanceCharacs *achar = ano->getAppearCharacs();
+			POPPLER_CONST_26_06 AnnotAppearanceCharacs *achar = ano->getAppearCharacs();
 			bool fgFound = false;
 			bool bgFound = false;
 			if (achar)
@@ -696,8 +705,10 @@ bool SlaOutputDev::handleWidgetAnnot(Annot* annota, double xCoor, double yCoor, 
 			if (apa || !achar)
 			{
 				auto annotOutDev = std::make_shared<AnoOutputDev>(m_doc, m_importedColors);
-#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(22, 4, 0)
 				const PDFRectangle& annotaRect = annota->getRect();
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+				auto gfx = std::make_unique<Gfx>(m_pdfDoc, annotOutDev.get(), m_pdfDoc->getPage(m_actPage)->getResourceDict(), annotaRect, nullptr);
+#elif POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(22, 4, 0)
 				auto gfx = std::make_shared<Gfx>(m_pdfDoc, annotOutDev.get(), m_pdfDoc->getPage(m_actPage)->getResourceDict(), &annotaRect, nullptr);
 #else
 				auto gfx = std::make_shared<Gfx>(m_pdfDoc, annotOutDev.get(), m_pdfDoc->getPage(m_actPage)->getResourceDict(), annota->getRect(), nullptr);
@@ -732,7 +743,7 @@ bool SlaOutputDev::handleWidgetAnnot(Annot* annota, double xCoor, double yCoor, 
 			}
 			ite->setIsAnnotation(true);
 			ite->AutoName = false;
-			AnnotBorder *brd = annota->getBorder();
+			POPPLER_CONST_26_06 AnnotBorder *brd = annota->getBorder();
 			if (brd)
 			{
 				int bsty = brd->getStyle();
@@ -853,7 +864,11 @@ bool SlaOutputDev::handleWidgetAnnot(Annot* annota, double xCoor, double yCoor, 
 				{
 					if (wtyp == 5)
 						ite->annotation().addToFlag(Annotation::Flag_Combo);
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+					size_t co = btn->getChoices().size();
+#else
 					int co = btn->getNumChoices();
+#endif
 					if (co > 0)
 					{
 						QString inh = UnicodeParsedString(btn->getChoice(0));
@@ -958,7 +973,7 @@ void SlaOutputDev::applyTextStyle(PageItem* ite, const QString& fontName, const 
 
 void SlaOutputDev::handleActions(PageItem* ite, AnnotWidget *ano)
 {
-	LinkAction *Lact = ano->getAction();
+	POPPLER_CONST_26_06 LinkAction *Lact = ano->getAction();
 	if (Lact)
 	{
 		if (Lact->getKind() == actionJavaScript)
@@ -1508,7 +1523,9 @@ void SlaOutputDev::endTransparencyGroup(GfxState *state)
 	m_tmpSel->clear();
 }
 
-#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(25, 9, 0)
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+void SlaOutputDev::setSoftMask(GfxState* /*state*/, const std::array<double, 4>& bbox, bool alpha, Function* transferFunc, const GfxColor& /*backdropColor*/)
+#elif POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(25, 9, 0)
 void SlaOutputDev::setSoftMask(GfxState* /*state*/, const std::array<double, 4>& bbox, bool alpha, Function* transferFunc, GfxColor* /*backdropColor*/)
 #else
 void SlaOutputDev::setSoftMask(GfxState* /*state*/, const double* bbox, bool alpha, Function* transferFunc, GfxColor* /*backdropColor*/)
@@ -2303,7 +2320,11 @@ bool SlaOutputDev::tilingPatternFill(GfxState *state, Gfx* /*gfx*/, Catalog *cat
 	QTransform mm(mat[0], mat[1], mat[2], mat[3], mat[4], mat[5]);
 	QTransform mmx = mm * m_ctm;
 
-	auto gfx = std::make_shared<Gfx>(m_pdfDoc, this, resDict, &box, nullptr);
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+	auto gfx = std::make_unique<Gfx>(m_pdfDoc, this, resDict, box, nullptr);
+#else
+	auto gfx = std::make_unique<Gfx>(m_pdfDoc, this, resDict, &box, nullptr);
+#endif
 	m_inPattern++;
 	// Unset the clip path as it is unrelated to the pattern's coordinate space.
 	QPainterPath savedClip = m_graphicStack.top().clipPath;
@@ -2551,7 +2572,11 @@ void SlaOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str
 	if (matteColor != nullptr)
 	{
 		GfxRGB matteRgb;
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+		colorMap->getColorSpace()->getRGB(*matteColor, &matteRgb);
+#else
 		colorMap->getColorSpace()->getRGB(matteColor, &matteRgb);
+#endif
 		matteRc = qRound(colToDbl(matteRgb.r) * 255);
 		matteGc = qRound(colToDbl(matteRgb.g) * 255);
 		matteBc = qRound(colToDbl(matteRgb.b) * 255);
@@ -2939,10 +2964,18 @@ void SlaOutputDev::beginMarkedContent(const char *name, Object *dictRef)
 	m_mcStack.push(mSte);
 }
 
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+void SlaOutputDev::beginMarkedContent(const std::string& name, Dict* properties)
+#else
 void SlaOutputDev::beginMarkedContent(const char *name, Dict *properties)
+#endif
 {
 //	qDebug() << "Begin Marked Content with Name " << QString(name);
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+	QString nam = QString::fromStdString(name);
+#else
 	QString nam(name);
+#endif
 	mContent mSte;
 	mSte.name = nam;
 	mSte.ocgName = "";
@@ -3021,16 +3054,31 @@ void SlaOutputDev::endMarkedContent(GfxState *state)
 	}
 }
 
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+void SlaOutputDev::markPoint(const std::string& name)
+{
+	//	qDebug() << "Begin Marked Point with Name " << QString(name);
+}
+#else
 void SlaOutputDev::markPoint(const char *name)
 {
 //	qDebug() << "Begin Marked Point with Name " << QString(name);
 }
+#endif
 
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
+void SlaOutputDev::markPoint(const std::string& name, Dict* properties)
+{
+	//	qDebug() << "Begin Marked Point with Name " << QString(name) << "and Properties";
+	beginMarkedContent(name.c_str(), properties);
+}
+#else
 void SlaOutputDev::markPoint(const char *name, Dict *properties)
 {
 //	qDebug() << "Begin Marked Point with Name " << QString(name) << "and Properties";
 	beginMarkedContent(name, properties);
 }
+#endif
 
 void SlaOutputDev::updateFont(GfxState *state)
 {
@@ -3762,6 +3810,13 @@ void SlaOutputDev::endTextObject(GfxState *state)
 
 QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color, int *shade)
 {
+	if (!color)
+		return CommonStrings::None;
+	return getColor(color_space, *color, shade);
+}
+
+QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor &color, int *shade)
+{
 	QString fNam;
 	QString namPrefix = "FromPDF";
 	ScColor tmp;
@@ -3777,7 +3832,11 @@ QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color
 	if ((color_space->getMode() == csDeviceRGB) || (color_space->getMode() == csCalRGB))
 	{
 		GfxRGB rgb;
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
 		color_space->getRGB(color, &rgb);
+#else
+		color_space->getRGB(&color, &rgb);
+#endif
 		double Rc = colToDbl(rgb.r);
 		double Gc = colToDbl(rgb.g);
 		double Bc = colToDbl(rgb.b);
@@ -3787,7 +3846,11 @@ QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color
 	else if (color_space->getMode() == csDeviceCMYK)
 	{
 		GfxCMYK cmyk;
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
 		color_space->getCMYK(color, &cmyk);
+#else
+		color_space->getCMYK(&color, &cmyk);
+#endif
 		double Cc = colToDbl(cmyk.c);
 		double Mc = colToDbl(cmyk.m);
 		double Yc = colToDbl(cmyk.y);
@@ -3798,7 +3861,11 @@ QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color
 	else if ((color_space->getMode() == csCalGray) || (color_space->getMode() == csDeviceGray))
 	{
 		GfxGray gray;
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
 		color_space->getGray(color, &gray);
+#else
+		color_space->getGray(&color, &gray);
+#endif
 		double Kc = 1.0 - colToDbl(gray);
 		tmp.setCmykColorF(0, 0, 0, Kc);
 		fNam = m_doc->PageColors.tryAddColor(namPrefix+tmp.name(), tmp);
@@ -3839,7 +3906,11 @@ QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color
 		else
 		{
 			GfxCMYK cmyk;
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
 			color_space->getCMYK(color, &cmyk);
+#else
+			color_space->getCMYK(&color, &cmyk);
+#endif
 			double Cc = colToDbl(cmyk.c);
 			double Mc = colToDbl(cmyk.m);
 			double Yc = colToDbl(cmyk.y);
@@ -3849,12 +3920,20 @@ QString SlaOutputDev::getColor(GfxColorSpace *color_space, const GfxColor *color
 		tmp.setSpotColor(true);
 
 		fNam = m_doc->PageColors.tryAddColor(name, tmp);
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 06, 0)
+		*shade = qRound(colToDbl(color.c[0]) * 100);
+#else
 		*shade = qRound(colToDbl(color->c[0]) * 100);
+#endif
 	}
 	else
 	{
 		GfxRGB rgb;
+#if POPPLER_ENCODED_VERSION >= POPPLER_VERSION_ENCODE(26, 6, 0)
 		color_space->getRGB(color, &rgb);
+#else
+		color_space->getRGB(&color, &rgb);
+#endif
 		double Rc = colToDbl(rgb.r);
 		double Gc = colToDbl(rgb.g);
 		double Bc = colToDbl(rgb.b);
@@ -4107,6 +4186,11 @@ void SlaOutputDev::pushGroup(const QString& maskName, bool forSoftMask, bool alp
 	gElements.inverted = inverted;
 	gElements.maskName = maskName;
 	m_groupStack.push(gElements);
+}
+
+QString SlaOutputDev::UnicodeParsedString(const GooString& s1) const
+{
+	return UnicodeParsedString(&s1);
 }
 
 QString SlaOutputDev::UnicodeParsedString(const GooString *s1) const
